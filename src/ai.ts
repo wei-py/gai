@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { GaiError } from './util';
 
 export interface AiConfig {
@@ -47,8 +48,8 @@ export async function callAI(messages: ChatMessage[], config: AiConfig): Promise
   const apiModel = config.model.slice(config.model.lastIndexOf('/') + 1);
   const apiUrl = `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`;
 
-  console.log('Analyzing changes...');
-  console.log(`Model: ${config.model}`);
+  console.log(t('analyzing'));
+  console.log(t('model_line', { model: config.model }));
   console.log();
 
   const payload: Record<string, unknown> = {
@@ -66,22 +67,19 @@ export async function callAI(messages: ChatMessage[], config: AiConfig): Promise
       response = await postChat(apiUrl, config.token, payload);
     }
   } catch (error) {
-    throw new GaiError(`AI provider request failed: ${(error as Error).message}`);
+    throw new GaiError(t('err_ai_request', { error: (error as Error).message }));
   }
 
   const raw = await response.text();
   if (!response.ok) {
-    if (raw.trim()) {
-      console.error(raw);
-    }
-    throw new GaiError(`AI provider API failed (HTTP ${response.status}).`);
+    throw new GaiError(t('err_ai_status', { status: response.status, body: raw }));
   }
 
   let data: unknown;
   try {
     data = JSON.parse(raw);
   } catch {
-    throw new GaiError(`AI provider did not return JSON:\n${raw}`);
+    throw new GaiError(t('err_ai_json', { body: raw }));
   }
 
   let content = '';
@@ -93,7 +91,7 @@ export async function callAI(messages: ChatMessage[], config: AiConfig): Promise
     }
   }
   if (!content.trim()) {
-    throw new GaiError(`AI provider returned empty content:\n${raw}`);
+    throw new GaiError(t('err_ai_empty', { body: raw }));
   }
   return content;
 }

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { t } from './i18n';
 import { CommitSpec, GaiError } from './util';
 
 const MAX_TRACKED_DIFF_CHARS = 180_000;
@@ -21,7 +22,7 @@ export function run(args: string[], options: { cwd?: string; check?: boolean } =
   try {
     result = Bun.spawnSync({ cmd: args, cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
   } catch (error) {
-    throw new GaiError(`${args[0]} failed: ${(error as Error).message}`);
+    throw new GaiError(t('err_cmd_failed', { command: args[0], error: (error as Error).message }));
   }
 
   const outcome: RunResult = {
@@ -34,9 +35,9 @@ export function run(args: string[], options: { cwd?: string; check?: boolean } =
     const command = args.join(' ');
     const stderr = outcome.stderr.trim();
     if (stderr) {
-      throw new GaiError(`${command} failed:\n${stderr}`);
+      throw new GaiError(t('err_cmd_failed', { command, error: stderr }));
     }
-    throw new GaiError(`${command} failed with exit code ${outcome.status}`);
+    throw new GaiError(t('err_cmd_failed', { command, error: `exit code ${outcome.status}` }));
   }
 
   return outcome;
@@ -68,7 +69,7 @@ export function currentRepo(): RepoScope {
   const cwd = process.cwd();
   const inside = runGit(['rev-parse', '--is-inside-work-tree'], { cwd, check: false });
   if (inside.status !== 0 || inside.stdout.trim() !== 'true') {
-    throw new GaiError('Not a git repository.');
+    throw new GaiError(t('not_a_repo'));
   }
   const root = runGit(['rev-parse', '--show-toplevel'], { cwd }).stdout.trim();
   const prefix = runGit(['rev-parse', '--show-prefix'], { cwd }).stdout.trim().replace(/\/$/, '');
@@ -80,11 +81,34 @@ export function currentRepo(): RepoScope {
   };
 }
 
+
+// Enterprise trailers: ticket comes from GAI_TICKET or the branch name via GAI_COMMIT_TICKET.
+export function resolveTicket(repoRoot: string, pattern: string): string {
+  if (!pattern) {
+    return '';
+  }
+  const override = process.env.GAI_TICKET ?? '';
+  if (override.trim()) {
+    return override.trim();
+  }
+  const branch = runGit(['branch', '--show-current'], { cwd: repoRoot, check: false }).stdout.trim();
+  if (!branch) {
+    return '';
+  }
+  let match: RegExpExecArray | null = null;
+  try {
+    match = new RegExp(pattern).exec(branch);
+  } catch (error) {
+    throw new GaiError(t('cfg_bad_ticket', { error: (error as Error).message }));
+  }
+  return match?.[0] ?? '';
+}
+
 export function ensureIndexEmpty(repoRoot: string): void {
   const staged = runGit(['diff', '--cached', '--name-only', '-z'], { cwd: repoRoot }).stdout;
   const stagedFiles = zsplit(staged);
   if (stagedFiles.length > 0) {
-    console.log('Existing staged changes detected. Commit or unstage them before running gai.');
+    console.log(t('staged_existing'));
     for (const file of stagedFiles) {
       console.log(`  - ${file}`);
     }

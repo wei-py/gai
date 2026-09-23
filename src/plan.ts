@@ -1,30 +1,32 @@
 import path from 'node:path';
 import { AiConfig, callAI, ChatMessage } from './ai';
+import { Convention } from './config';
 import { formatGitStatusFiles } from './git';
+import { Lang, t } from './i18n';
 import { buildRepairPrompt } from './prompt';
 import { CommitSpec, GaiError, isRecord } from './util';
 
-export const COMMIT_RE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?: .+/;
 const MAX_PLAN_ATTEMPTS = 3;
+const MESSAGE_RE = /^([a-z]+)(?:\(([^)\n]*)\))?!?: (.+)$/;
 
 export function normalizeRepoPath(rawPath: unknown): string {
   if (typeof rawPath !== 'string') {
-    throw new GaiError('File paths in AI output must be strings.');
+    throw new GaiError(t('val_path_string'));
   }
   let value = rawPath.trim();
   if (!value) {
-    throw new GaiError('Empty file path in AI output.');
+    throw new GaiError(t('val_path_empty'));
   }
   if (value.startsWith('./')) {
     value = value.slice(2);
   }
   if (value.startsWith('/')) {
-    throw new GaiError(`Absolute paths are not allowed in AI output: ${value}`);
+    throw new GaiError(t('val_path_abs', { path: rawPath }));
   }
 
   const normalized = path.posix.normalize(value);
   if (normalized === '' || normalized === '.' || normalized === '..' || normalized.startsWith('../')) {
-    throw new GaiError(`Invalid file path in AI output: ${rawPath}`);
+    throw new GaiError(t('val_path_invalid', { path: rawPath }));
   }
   return normalized;
 }
@@ -45,7 +47,7 @@ export function extractJson(text: unknown): Record<string, unknown> {
   const start = cleaned.indexOf('{');
   const end = cleaned.lastIndexOf('}');
   if (start === -1 || end === -1 || end < start) {
-    throw new GaiError(`AI did not return JSON:\n${cleaned}`);
+    throw new GaiError(t('val_no_json', { raw: cleaned }));
   }
 
   const jsonText = cleaned.slice(start, end + 1);
@@ -53,18 +55,54 @@ export function extractJson(text: unknown): Record<string, unknown> {
   try {
     parsed = JSON.parse(jsonText);
   } catch (error) {
-    throw new GaiError(`Failed to parse plan JSON: ${(error as Error).message}\n\nRaw output:\n${cleaned}`);
+    throw new GaiError(t('val_parse_fail', { error: (error as Error).message, raw: cleaned }));
   }
   if (!isRecord(parsed)) {
-    throw new GaiError('Plan JSON must be an object.');
+    throw new GaiError(t('val_not_object'));
   }
   return parsed;
 }
 
-export function validatePlan(parsed: Record<string, unknown>, expectedFiles: string[]): CommitSpec[] {
+// Deterministic mirror of the configured commit convention (type-enum, scope-optional,
+// subject-full-stop, header-max-length, body-leading-blank).
+function checkMessage(message: string, index: number, convention: Convention): void {
+  const [subject] = message.split('\n');
+  const match = MESSAGE_RE.exec(subject);
+  if (!match) {
+    throw new GaiError(t('val_bad_format', { index, message }));
+  }
+  const [, type, scope, text] = match;
+  if (!convention.types.includes(type)) {
+    throw new GaiError(t('val_bad_type', { index, message }));
+  }
+  if (scope !== undefined && !convention.scope) {
+    throw new GaiError(t('val_scope_disabled', { index, message }));
+  }
+  if (!text.trim()) {
+    throw new GaiError(t('val_commit_message', { index }));
+  }
+  if (text.trimEnd().endsWith('.')) {
+    throw new GaiError(t('val_subject_period', { index, message }));
+  }
+  if (subject.length > convention.subjectMax) {
+    throw new GaiError(t('val_subject_long', { index, max: convention.subjectMax, message }));
+  }
+  if (convention.body) {
+    const split = message.indexOf('\n\n');
+    if (split === -1 || !message.slice(split + 2).trim()) {
+      throw new GaiError(t('val_body_missing', { index, message }));
+    }
+  }
+}
+
+export function validatePlan(
+  parsed: Record<string, unknown>,
+  expectedFiles: string[],
+  convention: Convention,
+): CommitSpec[] {
   const commits = parsed.commits;
   if (!Array.isArray(commits) || commits.length === 0) {
-    throw new GaiError('Plan JSON must contain a non-empty "commits" array.');
+    throw new GaiError(t('val_commits_array'));
   }
 
   const expected = new Set(expectedFiles);
@@ -74,20 +112,18 @@ export function validatePlan(parsed: Record<string, unknown>, expectedFiles: str
   commits.forEach((entry, commitIndex) => {
     const displayIndex = commitIndex + 1;
     if (!isRecord(entry)) {
-      throw new GaiError(`Commit #${displayIndex} must be an object.`);
+      throw new GaiError(t('val_commit_object', { index: displayIndex }));
     }
 
     const rawMessage = entry.message;
     if (typeof rawMessage !== 'string' || !rawMessage.trim()) {
-      throw new GaiError(`Commit #${displayIndex} has an invalid message.`);
+      throw new GaiError(t('val_commit_message', { index: displayIndex }));
     }
     const message = rawMessage.trim().replace(/^[`'"]+|[`'"]+$/g, '');
-    if (!COMMIT_RE.test(message)) {
-      throw new GaiError(`Commit #${displayIndex} message is not Conventional Commit format: ${message}`);
-    }
+    checkMessage(message, displayIndex, convention);
 
     if (!Array.isArray(entry.files) || entry.files.length === 0) {
-      throw new GaiError(`Commit #${displayIndex} must contain a non-empty files array.`);
+      throw new GaiError(t('val_files_empty', { index: displayIndex }));
     }
 
     const files: string[] = [];
@@ -95,15 +131,12 @@ export function validatePlan(parsed: Record<string, unknown>, expectedFiles: str
       const file = normalizeRepoPath(rawPath);
       if (!expected.has(file)) {
         throw new GaiError(
-          `AI returned a file that is not in current git status: ${file}\n\n` +
-            `Commit: #${displayIndex}\n\n` +
-            `Current git status files:\n${formatGitStatusFiles(expectedFiles)}`,
+          t('val_unknown_file', { file, index: displayIndex, files: formatGitStatusFiles(expectedFiles) }),
         );
       }
-      if (seen.has(file)) {
-        throw new GaiError(
-          `File appears in multiple commits: ${file} (commit #${seen.get(file)} and commit #${displayIndex})`,
-        );
+      const previous = seen.get(file);
+      if (previous !== undefined) {
+        throw new GaiError(t('val_duplicate_file', { file, a: previous, b: displayIndex }));
       }
       seen.set(file, displayIndex);
       files.push(file);
@@ -114,10 +147,18 @@ export function validatePlan(parsed: Record<string, unknown>, expectedFiles: str
 
   const missing = [...expected].filter((file) => !seen.has(file)).sort();
   if (missing.length > 0) {
-    throw new GaiError(`Plan did not cover every changed file:\n${missing.map((file) => `  - ${file}`).join('\n')}`);
+    throw new GaiError(t('val_missing_files', { files: missing.map((file) => `  - ${file}`).join('\n') }));
   }
 
   return normalizedCommits;
+}
+
+/** Enterprise trailers: gai owns the ticket footer so it is always present and never duplicated. */
+export function withTicketFooter(message: string, ticket: string): string {
+  if (!ticket || message.includes(`Refs: ${ticket}`)) {
+    return message;
+  }
+  return `${message}\n\nRefs: ${ticket}`;
 }
 
 export async function generatePlan(params: {
@@ -125,6 +166,8 @@ export async function generatePlan(params: {
   files: string[];
   status: Map<string, string>;
   config: AiConfig;
+  convention: Convention;
+  commitLang: Lang;
 }): Promise<CommitSpec[]> {
   const messages: ChatMessage[] = [{ role: 'user', content: params.prompt }];
   let lastError: GaiError | undefined;
@@ -132,7 +175,7 @@ export async function generatePlan(params: {
   for (let attempt = 1; attempt <= MAX_PLAN_ATTEMPTS; attempt += 1) {
     const raw = await callAI(messages, params.config);
     try {
-      return validatePlan(extractJson(raw), params.files);
+      return validatePlan(extractJson(raw), params.files, params.convention);
     } catch (error) {
       if (!(error instanceof GaiError)) {
         throw error;
@@ -141,9 +184,9 @@ export async function generatePlan(params: {
       if (attempt === MAX_PLAN_ATTEMPTS) {
         break;
       }
-      console.error(`Commit plan validation failed (attempt ${attempt}/${MAX_PLAN_ATTEMPTS}):`);
+      console.error(t('plan_attempts', { attempt, max: MAX_PLAN_ATTEMPTS }));
       console.error(error.message);
-      console.error('\nRequesting a corrected plan...\n');
+      console.error(`\n${t('plan_fixing')}\n`);
       messages.push(
         { role: 'assistant', content: raw },
         {
@@ -152,14 +195,13 @@ export async function generatePlan(params: {
             files: params.files,
             status: params.status,
             validationError: error.message,
+            convention: params.convention,
+            commitLang: params.commitLang,
           }),
         },
       );
     }
   }
 
-  throw new GaiError(
-    `AI provider failed to produce a valid commit plan after ${MAX_PLAN_ATTEMPTS} attempts.\n\n` +
-      `Last validation error:\n${lastError?.message ?? 'unknown'}`,
-  );
+  throw new GaiError(t('plan_failed', { max: MAX_PLAN_ATTEMPTS, error: lastError?.message ?? 'unknown' }));
 }

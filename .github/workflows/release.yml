@@ -19,11 +19,9 @@ env:
   RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
 
 jobs:
-  build:
-    name: Build release binaries
+  check:
+    name: Type check
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Check out release tag
@@ -42,10 +40,72 @@ jobs:
       - name: Type check
         run: bun run check
 
-      - name: Build standalone binaries
+  build:
+    name: Build ${{ matrix.target }}
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+          - os: macos-26-intel
+            target: darwin-x64
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: windows-latest
+            target: win32-x64
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build standalone binary
         env:
           GAI_BUILD_VERSION: ${{ env.RELEASE_TAG }}
-        run: bun scripts/build.ts --all
+        run: bun scripts/build.ts --target=${{ matrix.target }}
+
+      - name: Smoke test binary
+        shell: bash
+        run: ./dist/gai-* --version | grep -F -- '${{ matrix.target }}'
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage binaries and merge checksums
+        run: |
+          mkdir dist
+          mv artifacts/*/gai-* dist/
+          cat artifacts/*/checksums.txt | sort -k2 > dist/checksums.txt
 
       - name: Attach binaries to GitHub release
         uses: softprops/action-gh-release@v2

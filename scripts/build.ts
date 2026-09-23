@@ -28,9 +28,17 @@ function deriveRepoFromRemote(): string {
 }
 
 const all = process.argv.includes('--all');
-const targets = all ? TARGETS : TARGETS.filter((t) => t.platform === process.platform && t.arch === process.arch);
+const explicit = process.argv.find((arg) => arg.startsWith('--target='))?.slice('--target='.length);
+const targets = explicit
+  ? TARGETS.filter((t) => `${t.platform}-${t.arch}` === explicit)
+  : all
+    ? TARGETS
+    : TARGETS.filter((t) => t.platform === process.platform && t.arch === process.arch);
 if (targets.length === 0) {
-  console.error(`No build target for ${process.platform}-${process.arch}; use --all.`);
+  console.error(
+    `No build target for ${explicit ?? `${process.platform}-${process.arch}`}; ` +
+      `use --all or one of: ${TARGETS.map((t) => `${t.platform}-${t.arch}`).join(', ')}`,
+  );
   process.exit(1);
 }
 
@@ -41,6 +49,7 @@ const info = {
   releaseRepo: process.env.GAI_UPDATE_REPO || deriveRepoFromRemote(),
 };
 
+fs.rmSync(OUT_DIR, { recursive: true, force: true });
 fs.mkdirSync(OUT_DIR, { recursive: true });
 const built: string[] = [];
 for (const target of targets) {

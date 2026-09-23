@@ -1,6 +1,8 @@
+#!/usr/bin/env bun
 import fs from 'node:fs';
 import path from 'node:path';
-import { CliFlags, resolveAiConfig } from './config';
+import { openConfigTui } from './config-tui';
+import { CliFlags, loadSettings, resolveAiConfig } from './config';
 import {
   collectCandidates,
   collectTrackedDiff,
@@ -8,42 +10,16 @@ import {
   currentRepo,
   ensureIndexEmpty,
   executePlan,
+  resolveTicket,
 } from './git';
-import { generatePlan } from './plan';
+import { setLang, t } from './i18n';
+import { generatePlan, withTicketFooter } from './plan';
 import { buildPrompt } from './prompt';
 import { selfUpdate } from './update';
 import { CommitSpec, fail, GaiError } from './util';
 import { versionLine } from './version';
 
-type Command = 'run' | 'update' | 'help' | 'version';
-
-const HELP = `gai - AI-planned git add + commit (works with any OpenAI-compatible API)
-
-Usage:
-  gai [options] [dir]        plan the uncommitted changes under dir (default: .) and commit them in groups
-  gai update                 self-update to the latest release
-  gai -v, --version          print version
-  gai -h, --help             show this help
-
-Options:
-  -token, --token <key>      API token (prefer GAI_TOKEN: argv is visible in ps and shell history)
-  -model, --model <name>     model name, e.g. deepseek-chat or gpt-4o-mini
-  -base-url, --base-url <url>   OpenAI-compatible API base URL (default: https://api.openai.com/v1)
-  -y, --yes                  skip the confirmation prompt
-  --dry-run                  print the commit plan without committing
-  --config <path>            KEY=VALUE config file (default: ~/.config/gai/config.env)
-
-Configuration (flag > env > config file):
-  token   GAI_TOKEN    (legacy: AI_API_KEY)
-  model   GAI_MODEL    (legacy: AI_MODEL)
-  base    GAI_BASE_URL (legacy: AI_BASE_URL)
-  GAI_YES=1 is equivalent to -y.
-
-Quick start:
-  export GAI_TOKEN=sk-...
-  export GAI_MODEL=deepseek-chat
-  export GAI_BASE_URL=https://api.deepseek.com/v1
-  gai`;
+type Command = 'run' | 'update' | 'config' | 'help' | 'version';
 
 function parseCli(argv: string[]): { command: Command; flags: CliFlags } {
   const flags: CliFlags = { yes: false, dryRun: false };
@@ -62,7 +38,7 @@ function parseCli(argv: string[]): { command: Command; flags: CliFlags } {
       }
       const value = argv[index + 1];
       if (value === undefined) {
-        fail(`Option ${label} requires a value.\nRun gai -h for usage.`);
+        fail(t('err_option_value', { option: label }));
       }
       index += 1;
       return value;
@@ -71,9 +47,15 @@ function parseCli(argv: string[]): { command: Command; flags: CliFlags } {
     switch (name) {
       case 'update':
         if (index !== 0) {
-          fail(`Unexpected argument: ${arg}\nRun gai -h for usage.`);
+          fail(t('err_unexpected_arg', { arg }));
         }
         command = 'update';
+        break;
+      case 'config':
+        if (index !== 0) {
+          fail(t('err_unexpected_arg', { arg }));
+        }
+        command = 'config';
         break;
       case '-h':
       case '--help':
@@ -107,11 +89,11 @@ function parseCli(argv: string[]): { command: Command; flags: CliFlags } {
         break;
       default:
         if (arg.startsWith('-')) {
-          fail(`Unknown option: ${arg}\nRun gai -h for usage.`);
+          fail(t('err_unknown_option', { arg }));
         }
         dirCount += 1;
         if (dirCount > 1) {
-          fail(`Only one directory argument is allowed: ${arg}\nRun gai -h for usage.`);
+          fail(t('err_one_dir', { arg }));
         }
         flags.dir = arg;
     }
@@ -121,13 +103,16 @@ function parseCli(argv: string[]): { command: Command; flags: CliFlags } {
     command === 'update' &&
     (flags.token || flags.model || flags.baseUrl || flags.configPath || flags.dir || flags.yes || flags.dryRun)
   ) {
-    fail('gai update takes no options.');
+    fail(t('err_no_options', { command: 'gai update' }));
+  }
+  if (command === 'config' && (flags.token || flags.model || flags.baseUrl || flags.dir || flags.yes || flags.dryRun)) {
+    fail(t('err_config_options'));
   }
   return { command, flags };
 }
 
 function printPlan(commits: CommitSpec[]): void {
-  console.log('Commit plan:');
+  console.log(t('commit_plan'));
   commits.forEach((commit, index) => {
     console.log(`${index + 1}. ${commit.message}`);
     for (const file of commit.files) {
@@ -139,12 +124,12 @@ function printPlan(commits: CommitSpec[]): void {
 
 function confirm(yes: boolean): boolean {
   if (yes || /^(1|true|yes|y)$/i.test(String(process.env.GAI_YES ?? '').trim())) {
-    console.log('Proceed? [y/N] y');
+    console.log(t('proceed_yes'));
     return true;
   }
 
   try {
-    fs.writeFileSync('/dev/tty', 'Proceed? [y/N] ');
+    fs.writeFileSync('/dev/tty', t('proceed'));
     const fd = fs.openSync('/dev/tty', 'r');
     try {
       const buffer = Buffer.alloc(256);
@@ -164,13 +149,22 @@ async function runFlow(flags: CliFlags): Promise<number> {
     process.chdir(path.resolve(flags.dir));
   }
 
-  const config = resolveAiConfig(flags);
+  const loaded = loadSettings(flags.configPath, flags);
+  setLang(loaded.settings.lang);
+  const config = resolveAiConfig(loaded.settings);
+  const { settings } = loaded;
+  const { convention } = settings;
   const { cwd, repoRoot, scopeLabel, pathspec } = currentRepo();
   ensureIndexEmpty(repoRoot);
 
+  const ticket = resolveTicket(repoRoot, convention.ticketPattern);
+  if (convention.ticketRequired && !ticket) {
+    throw new GaiError(t('err_ticket_required'));
+  }
+
   const { files, status } = collectCandidates(repoRoot, pathspec);
   if (files.length === 0) {
-    console.log(`No changes under current directory: ${scopeLabel}`);
+    console.log(t('no_changes', { scope: scopeLabel }));
     return 1;
   }
 
@@ -186,40 +180,54 @@ async function runFlow(flags: CliFlags): Promise<number> {
     trackedDiff,
     trackedDiffTruncated,
     untrackedPreview,
+    convention,
+    commitLang: settings.commitLang,
   });
-  const commits = await generatePlan({ prompt, files, status, config });
+  const planned = await generatePlan({ prompt, files, status, config, convention, commitLang: settings.commitLang });
+
+  const commits: CommitSpec[] = [];
+  for (const spec of planned) {
+    commits.push({ message: withTicketFooter(spec.message, ticket), files: spec.files });
+  }
 
   printPlan(commits);
   if (flags.dryRun) {
-    console.log('Dry run: no commits created.');
+    console.log(t('dry_run'));
     return 0;
   }
   if (!confirm(flags.yes)) {
-    console.log('Aborted.');
+    console.log(t('aborted'));
     return 0;
   }
 
   ensureIndexEmpty(repoRoot);
   const { files: currentFiles } = collectCandidates(repoRoot, pathspec);
   if (JSON.stringify(currentFiles) !== JSON.stringify(files)) {
-    throw new GaiError('Changed file set has changed since the plan was generated. Run gai again.');
+    throw new GaiError(t('files_changed'));
   }
 
   executePlan(repoRoot, commits);
   console.log();
-  console.log('Done.');
+  console.log(t('done'));
   return 0;
 }
 
 async function main(): Promise<number> {
-  const { command, flags } = parseCli(process.argv.slice(2));
   try {
+    // Best-effort language preload: the real load (strict about explicit paths) happens per command.
+    setLang(loadSettings(undefined, undefined, true).settings.lang);
+    const { command, flags } = parseCli(process.argv.slice(2));
     if (command === 'help') {
-      console.log(HELP);
+      console.log(t('help'));
       return 0;
     }
     if (command === 'version') {
       console.log(versionLine());
+      return 0;
+    }
+    if (command === 'config') {
+      // The settings screen creates the file on first save, so an absent explicit path is fine here.
+      await openConfigTui(loadSettings(flags.configPath, undefined, true));
       return 0;
     }
     if (command === 'update') {

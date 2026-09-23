@@ -4,6 +4,9 @@
   "description": "AI-planned git add + commit for any OpenAI-compatible API",
   "type": "module",
   "license": "MIT",
+  "bin": {
+    "gai": "./src/cli.ts"
+  },
   "scripts": {
     "dev": "bun src/cli.ts",
     "build": "bun scripts/build.ts",

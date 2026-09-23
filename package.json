@@ -1,0 +1,17 @@
+{
+  "name": "gai",
+  "version": "0.1.0",
+  "description": "AI-planned git add + commit for any OpenAI-compatible API",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "bun src/cli.ts",
+    "build": "bun scripts/build.ts",
+    "release": "bun scripts/build.ts --all",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}

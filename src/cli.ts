@@ -13,7 +13,7 @@ import {
   resolveTicket,
 } from './git';
 import { setLang, t } from './i18n';
-import { generatePlan, withTicketFooter } from './plan';
+import { generatePlan, withEmoji, withTicketFooter } from './plan';
 import { buildPrompt } from './prompt';
 import { selfUpdate } from './update';
 import { CommitSpec, fail, GaiError } from './util';
@@ -187,7 +187,7 @@ async function runFlow(flags: CliFlags): Promise<number> {
 
   const commits: CommitSpec[] = [];
   for (const spec of planned) {
-    commits.push({ message: withTicketFooter(spec.message, ticket), files: spec.files });
+    commits.push({ message: withEmoji(withTicketFooter(spec.message, ticket), convention), files: spec.files });
   }
 
   printPlan(commits);

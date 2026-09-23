@@ -1,4 +1,4 @@
-import { Convention } from './config';
+import { Convention, DEFAULT_PATTERN } from './config';
 import { Lang } from './i18n';
 
 export interface PromptInput {
@@ -16,20 +16,27 @@ export interface PromptInput {
 
 // Commit message rules restated for the model; must stay in lockstep with checkMessage in plan.ts.
 function rulesBlock(convention: Convention, commitLang: Lang): string {
-  const { types, scope, body, subjectMax } = convention;
+  const { types, pattern, scope, scopes, body, subjectMax } = convention;
   const lines: string[] = [];
 
   if (commitLang === 'zh') {
     lines.push('提交信息规范（Conventional Commits）：');
     lines.push('- message 语言必须是中文');
-    lines.push('- 格式：type(scope): 摘要；破坏性变更写成 type!: 摘要 或 type(scope)!: 摘要');
+    lines.push(
+      pattern === DEFAULT_PATTERN
+        ? '- 格式：type(scope): 摘要；破坏性变更写成 type!: 摘要 或 type(scope)!: 摘要'
+        : `- 格式：必须匹配正则 ${pattern}`,
+    );
     lines.push(`- type 只能是：${types.join(', ')}`);
     lines.push(
       scope
-        ? '- scope 可选：能明确模块时使用，例如 feat(ui): ...；无法确定就省略 scope，写成 feat: ...'
+        ? scopes.length > 0
+          ? `- scope 可选，只能是：${scopes.join(', ')}；无法确定就省略 scope`
+          : '- scope 可选：能明确模块时使用，例如 feat(ui): ...；无法确定就省略 scope，写成 feat: ...'
         : '- 不要使用 scope，格式固定为 type: 摘要',
     );
     lines.push(`- 摘要：简短祈使句，首行（含 type 与 scope）不超过 ${subjectMax} 个字符，结尾不加句号`);
+    lines.push('- 摘要不要以 emoji 开头');
     if (body) {
       lines.push('- 每个提交在摘要后空一行写正文，说明改动动机与影响，每行不超过 72 个字符');
     }
@@ -37,16 +44,23 @@ function rulesBlock(convention: Convention, commitLang: Lang): string {
   } else {
     lines.push('Commit message rules (Conventional Commits):');
     lines.push('- write every message in English');
-    lines.push('- format: type(scope): subject; for breaking changes use type!: subject or type(scope)!: subject');
+    lines.push(
+      pattern === DEFAULT_PATTERN
+        ? '- format: type(scope): subject; for breaking changes use type!: subject or type(scope)!: subject'
+        : `- format: the message must match the regex ${pattern}`,
+    );
     lines.push(`- type must be one of: ${types.join(', ')}`);
     lines.push(
       scope
-        ? '- scope is optional: use it when the module is clear, e.g. feat(ui): ...; otherwise omit it, e.g. feat: ...'
+        ? scopes.length > 0
+          ? `- scope is optional and must be one of: ${scopes.join(', ')}; omit it when unsure`
+          : '- scope is optional: use it when the module is clear, e.g. feat(ui): ...; otherwise omit it, e.g. feat: ...'
         : '- never use a scope; the format is type: subject',
     );
     lines.push(
       `- subject: short imperative sentence, first line (with type and scope) at most ${subjectMax} characters, no trailing period`,
     );
+    lines.push('- subject must not start with an emoji');
     if (body) {
       lines.push('- every commit needs a body after one blank line: motivation and impact, at most 72 characters per line');
     }
@@ -56,7 +70,12 @@ function rulesBlock(convention: Convention, commitLang: Lang): string {
 }
 
 function schemaLine(convention: Convention): string {
-  const shape = convention.body ? 'type(scope): subject\\n\\nbody' : 'type(scope): subject';
+  const shape =
+    convention.pattern !== DEFAULT_PATTERN
+      ? convention.pattern
+      : convention.body
+        ? 'type(scope): subject\\n\\nbody'
+        : 'type(scope): subject';
   return `{"commits":[{"message":"${shape}","files":["path/from/repo/root"]}]}`;
 }
 

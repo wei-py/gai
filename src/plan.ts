@@ -1,13 +1,34 @@
 import path from 'node:path';
 import { AiConfig, callAI, ChatMessage } from './ai';
-import { Convention } from './config';
+import { Convention, compileMessagePattern } from './config';
 import { formatGitStatusFiles } from './git';
 import { Lang, t } from './i18n';
 import { buildRepairPrompt } from './prompt';
 import { CommitSpec, GaiError, isRecord } from './util';
 
 const MAX_PLAN_ATTEMPTS = 3;
-const MESSAGE_RE = /^([a-z]+)(?:\(([^)\n]*)\))?!?: (.+)$/;
+// gai-owned decoration: one deterministic gitmoji per commit type (gitmoji/cz-git mapping).
+const EMOJI_BY_TYPE: Record<string, string> = {
+  feat: '✨',
+  fix: '🐛',
+  docs: '📝',
+  style: '💄',
+  refactor: '♻️',
+  perf: '⚡️',
+  test: '✅',
+  build: '📦',
+  ci: '👷',
+  chore: '🔧',
+  revert: '⏪️',
+};
+
+const LEADING_EMOJI = /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator})/u;
+
+// RegExpExec with the `d` flag: named groups plus their spans (not yet in the TS lib).
+interface PatternExec {
+  groups: Record<string, string | undefined>;
+  indices: { groups: Record<string, [number, number] | undefined> };
+}
 
 export function normalizeRepoPath(rawPath: unknown): string {
   if (typeof rawPath !== 'string') {
@@ -67,16 +88,24 @@ export function extractJson(text: unknown): Record<string, unknown> {
 // subject-full-stop, header-max-length, body-leading-blank).
 function checkMessage(message: string, index: number, convention: Convention): void {
   const [subject] = message.split('\n');
-  const match = MESSAGE_RE.exec(subject);
+  const match = compileMessagePattern(convention.pattern).exec(subject) as unknown as PatternExec | null;
   if (!match) {
     throw new GaiError(t('val_bad_format', { index, message }));
   }
-  const [, type, scope, text] = match;
+  const type = match.groups.type ?? '';
+  const scope = match.groups.scope;
+  const text = match.groups.description ?? '';
   if (!convention.types.includes(type)) {
     throw new GaiError(t('val_bad_type', { index, message }));
   }
   if (scope !== undefined && !convention.scope) {
     throw new GaiError(t('val_scope_disabled', { index, message }));
+  }
+  if (scope !== undefined && convention.scopes.length > 0 && !convention.scopes.includes(scope)) {
+    throw new GaiError(t('val_scope_unknown', { index, message }));
+  }
+  if (LEADING_EMOJI.test(text.trimStart())) {
+    throw new GaiError(t('val_subject_emoji', { index, message }));
   }
   if (!text.trim()) {
     throw new GaiError(t('val_commit_message', { index }));
@@ -151,6 +180,21 @@ export function validatePlan(
   }
 
   return normalizedCommits;
+}
+
+/** gai-owned decoration: the type's gitmoji before the description, e.g. "feat(ui): ✨ subject". */
+export function withEmoji(message: string, convention: Convention): string {
+  if (!convention.emoji) {
+    return message;
+  }
+  const [subject, ...rest] = message.split('\n');
+  const match = compileMessagePattern(convention.pattern).exec(subject) as unknown as PatternExec | null;
+  const emoji = match?.groups.type ? EMOJI_BY_TYPE[match.groups.type] : undefined;
+  const span = match?.indices.groups.description;
+  if (!emoji || !span) {
+    return message;
+  }
+  return [`${subject.slice(0, span[0])}${emoji} ${subject.slice(span[0])}`, ...rest].join('\n');
 }
 
 /** Enterprise trailers: gai owns the ticket footer so it is always present and never duplicated. */

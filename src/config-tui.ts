@@ -1,4 +1,4 @@
-import { DEFAULT_TYPES, LoadedSettings, saveSettings, Settings } from './config';
+import { compileMessagePattern, DEFAULT_PATTERN, DEFAULT_TYPES, LoadedSettings, parseScopes, saveSettings, Settings } from './config';
 import { setLang, t } from './i18n';
 import { GaiError } from './util';
 
@@ -9,7 +9,10 @@ type SettingKey =
   | 'token'
   | 'baseUrl'
   | 'types'
+  | 'pattern'
   | 'scope'
+  | 'scopes'
+  | 'emoji'
   | 'body'
   | 'subjectMax'
   | 'ticketPattern'
@@ -49,7 +52,10 @@ const ROWS: RowSpec[] = [
   { key: 'token', kind: 'text', labelKey: 'cfg_row_token', envKey: 'GAI_TOKEN' },
   { key: 'baseUrl', kind: 'text', labelKey: 'cfg_row_base_url', envKey: 'GAI_BASE_URL' },
   { key: 'types', kind: 'types', labelKey: 'cfg_row_types', envKey: 'GAI_COMMIT_TYPES' },
+  { key: 'pattern', kind: 'text', labelKey: 'cfg_row_pattern', envKey: 'GAI_COMMIT_PATTERN' },
   { key: 'scope', kind: 'choice', labelKey: 'cfg_row_scope', envKey: 'GAI_COMMIT_SCOPE', values: ['1', '0'] },
+  { key: 'scopes', kind: 'text', labelKey: 'cfg_row_scopes', envKey: 'GAI_COMMIT_SCOPES' },
+  { key: 'emoji', kind: 'choice', labelKey: 'cfg_row_emoji', envKey: 'GAI_COMMIT_EMOJI', values: ['0', '1'] },
   { key: 'body', kind: 'choice', labelKey: 'cfg_row_body', envKey: 'GAI_COMMIT_BODY', values: ['0', '1'] },
   {
     key: 'subjectMax',
@@ -82,8 +88,14 @@ function readValue(settings: Settings, key: SettingKey): string {
       return settings.baseUrl;
     case 'types':
       return settings.convention.types.join(',');
+    case 'pattern':
+      return settings.convention.pattern;
     case 'scope':
       return settings.convention.scope ? '1' : '0';
+    case 'scopes':
+      return settings.convention.scopes.join(',');
+    case 'emoji':
+      return settings.convention.emoji ? '1' : '0';
     case 'body':
       return settings.convention.body ? '1' : '0';
     case 'subjectMax':
@@ -117,8 +129,17 @@ function writeValue(settings: Settings, key: SettingKey, raw: string): void {
     case 'types':
       settings.convention.types = value.split(',').filter((entry) => entry.length > 0);
       break;
+    case 'pattern':
+      settings.convention.pattern = value || DEFAULT_PATTERN;
+      break;
     case 'scope':
       settings.convention.scope = value === '1';
+      break;
+    case 'scopes':
+      settings.convention.scopes = parseScopes(value);
+      break;
+    case 'emoji':
+      settings.convention.emoji = value === '1';
       break;
     case 'body':
       settings.convention.body = value === '1';
@@ -139,8 +160,14 @@ function displayValue(key: SettingKey, raw: string): string {
   if (key === 'token') {
     return raw ? t('cfg_masked') : t('cfg_not_set');
   }
-  if (key === 'scope' || key === 'body' || key === 'ticketRequired') {
+  if (key === 'scope' || key === 'body' || key === 'emoji' || key === 'ticketRequired') {
     return raw === '1' ? t('cfg_yes') : t('cfg_no');
+  }
+  if (key === 'pattern') {
+    return raw === DEFAULT_PATTERN ? t('cfg_default') : raw;
+  }
+  if (key === 'scopes') {
+    return raw || t('cfg_any');
   }
   return raw || t('cfg_not_set');
 }
@@ -239,6 +266,15 @@ function keyEvents(input: string): Array<{ name: string; text: string }> {
 }
 
 function applyValue(state: TuiState, row: RowSpec, raw: string): void {
+  if (row.key === 'pattern' && raw.trim()) {
+    try {
+      compileMessagePattern(raw.trim());
+    } catch (error) {
+      state.status = (error as Error).message;
+      state.statusError = true;
+      return;
+    }
+  }
   if (row.key === 'ticketPattern' && raw.trim()) {
     try {
       new RegExp(raw.trim());

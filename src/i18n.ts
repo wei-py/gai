@@ -42,7 +42,14 @@ Configuration (flag > env > config file; every key is editable in gai config):
   interface lang   GAI_LANG                     en | zh
   commit language  GAI_COMMIT_LANG              en | zh
   commit types     GAI_COMMIT_TYPES             comma list, e.g. feat,fix,docs,refactor
+  message pattern  GAI_COMMIT_PATTERN           message regex with the named groups type, scope,
+                                               breaking, description (default: Conventional
+                                               Commits header)
   scope            GAI_COMMIT_SCOPE             1 allow "type(scope): subject" (default 1)
+  scope whitelist  GAI_COMMIT_SCOPES            comma list of allowed scopes; empty = any scope
+  emoji            GAI_COMMIT_EMOJI             1 prefix the subject with the type emoji, e.g.
+                                               feat: ✨ subject; not counted in the subject
+                                               limit (default 0)
   body             GAI_COMMIT_BODY              1 require a body after a blank line (default 0)
   subject limit    GAI_COMMIT_SUBJECT_MAX       50 | 72 | 100 (default 72)
   ticket pattern   GAI_COMMIT_TICKET            regex, e.g. PROJ-[0-9]+; appends a "Refs: <ticket>"
@@ -52,6 +59,7 @@ Configuration (flag > env > config file; every key is editable in gai config):
 
 Commit message format (Conventional Commits):
   type(scope): subject        # subject is imperative, <= subject limit, no trailing period
+  feat(ui): ✨ subject        # GAI_COMMIT_EMOJI=1 prepends the type emoji to the subject
                               # body (when enabled) follows one blank line and explains why
   BREAKING CHANGE: <note>     # footer for breaking changes
   Refs: <ticket>              # footer added by gai from the branch name
@@ -91,6 +99,8 @@ Quick start:
   err_model_missing: 'Model is not configured. Set GAI_MODEL, pass -model, or run "gai config".',
   err_config_missing: 'Config file not found: {path}',
   err_config_line: 'Invalid config line {file}:{line}: {text}',
+  err_pattern_invalid: 'GAI_COMMIT_PATTERN is not a valid regex: {error}',
+  err_pattern_groups: 'GAI_COMMIT_PATTERN must contain the named groups (?<type>), (?<scope>), (?<breaking>), (?<description>): {pattern}',
   err_ai_request: 'AI provider request failed: {error}',
   err_ai_status: 'AI provider returned HTTP {status}:\n{body}',
   err_ai_json: 'AI provider did not return JSON:\n{body}',
@@ -109,6 +119,8 @@ Quick start:
   val_bad_format: 'Commit #{index} message does not follow the configured commit convention: {message}',
   val_bad_type: 'Commit #{index} uses a type outside GAI_COMMIT_TYPES: {message}',
   val_scope_disabled: 'Commit #{index} must not use a scope: {message}',
+  val_scope_unknown: 'Commit #{index} scope is outside GAI_COMMIT_SCOPES: {message}',
+  val_subject_emoji: 'Commit #{index} subject must not start with an emoji: {message}',
   val_subject_long: 'Commit #{index} subject exceeds {max} characters: {message}',
   val_subject_period: 'Commit #{index} subject must not end with a period: {message}',
   val_body_missing: 'Commit #{index} must include a body after a blank line: {message}',
@@ -153,6 +165,8 @@ Quick start:
   cfg_edit_hint: 'type a value · Enter save · Esc cancel',
   cfg_back_hint: 'Space toggle (applies immediately)   Esc back',
   cfg_not_set: '(not set)',
+  cfg_any: '(any)',
+  cfg_default: '(default)',
   cfg_masked: '(hidden)',
   cfg_env_note: '{key} in the environment overrides this file',
   cfg_bad_value: 'Invalid value: {value}',
@@ -164,7 +178,10 @@ Quick start:
   cfg_row_token: 'API token',
   cfg_row_base_url: 'API base URL',
   cfg_row_types: 'Commit types',
+  cfg_row_pattern: 'Message pattern',
   cfg_row_scope: 'Allow type(scope)',
+  cfg_row_scopes: 'Scope whitelist',
+  cfg_row_emoji: 'Emoji prefix',
   cfg_row_body: 'Require body',
   cfg_row_subject_max: 'Subject max length',
   cfg_row_ticket: 'Ticket pattern (Refs footer)',
@@ -199,7 +216,13 @@ const ZH: Record<string, string> = {
   界面语言          GAI_LANG                     en | zh
   提交信息语言       GAI_COMMIT_LANG              en | zh
   提交类型          GAI_COMMIT_TYPES             逗号分隔，如 feat,fix,docs,refactor
+  消息正则          GAI_COMMIT_PATTERN           提交信息正则，须含命名分组 type、scope、
+                                               breaking、description（默认即 Conventional
+                                               Commits 格式）
   scope            GAI_COMMIT_SCOPE             1 允许 "type(scope): 摘要"（默认 1）
+  scope 白名单      GAI_COMMIT_SCOPES            逗号分隔的 scope 白名单；留空表示不限
+  emoji 前缀        GAI_COMMIT_EMOJI             1 在摘要前加类型对应 emoji，如 feat: ✨ 摘要；
+                                               不计入长度校验（默认 0）
   正文              GAI_COMMIT_BODY              1 要求空行后有正文说明动机（默认 0）
   摘要长度          GAI_COMMIT_SUBJECT_MAX       50 | 72 | 100（默认 72）
   单号规则          GAI_COMMIT_TICKET            正则，如 PROJ-[0-9]+；从分支名或 GAI_TICKET 取值，
@@ -209,6 +232,7 @@ const ZH: Record<string, string> = {
 
 提交信息格式（Conventional Commits，企业规范）：
   type(scope): 摘要            # 祈使句、不超过摘要长度上限、结尾不加句号
+  feat(ui): ✨ 摘要            # GAI_COMMIT_EMOJI=1 时自动加类型对应 emoji
                                # 开启正文时，空行后写动机与改动说明
   BREAKING CHANGE: <说明>      # 破坏性变更 footer
   Refs: <单号>                 # gai 从分支名追加的 footer
@@ -246,6 +270,8 @@ const ZH: Record<string, string> = {
   err_model_missing: '未配置模型。请设置 GAI_MODEL、使用 -model，或运行 gai config。',
   err_config_missing: '找不到配置文件：{path}',
   err_config_line: '配置文件 {file} 第 {line} 行无效：{text}',
+  err_pattern_invalid: 'GAI_COMMIT_PATTERN 不是有效的正则：{error}',
+  err_pattern_groups: 'GAI_COMMIT_PATTERN 必须包含命名分组 (?<type>)、(?<scope>)、(?<breaking>)、(?<description>)：{pattern}',
   err_ai_request: 'AI 服务请求失败：{error}',
   err_ai_status: 'AI 服务返回 HTTP {status}：\n{body}',
   err_ai_json: 'AI 服务没有返回 JSON：\n{body}',
@@ -264,6 +290,8 @@ const ZH: Record<string, string> = {
   val_bad_format: '提交 #{index} 的 message 不符合当前提交规范：{message}',
   val_bad_type: '提交 #{index} 的 type 不在 GAI_COMMIT_TYPES 中：{message}',
   val_scope_disabled: '提交 #{index} 不允许使用 scope：{message}',
+  val_scope_unknown: '提交 #{index} 的 scope 不在 GAI_COMMIT_SCOPES 白名单：{message}',
+  val_subject_emoji: '提交 #{index} 的摘要不能以 emoji 开头：{message}',
   val_subject_long: '提交 #{index} 的摘要超过 {max} 个字符：{message}',
   val_subject_period: '提交 #{index} 的摘要结尾不能是句号：{message}',
   val_body_missing: '提交 #{index} 缺少空行后的正文：{message}',
@@ -308,6 +336,8 @@ const ZH: Record<string, string> = {
   cfg_edit_hint: '输入内容 · 回车保存 · Esc 取消',
   cfg_back_hint: '空格切换（立即生效）   Esc 返回',
   cfg_not_set: '（未设置）',
+  cfg_any: '（不限）',
+  cfg_default: '（默认）',
   cfg_masked: '（已隐藏）',
   cfg_env_note: '环境变量 {key} 优先于此文件',
   cfg_bad_value: '无效的值：{value}',
@@ -319,7 +349,10 @@ const ZH: Record<string, string> = {
   cfg_row_token: 'API token',
   cfg_row_base_url: 'API 地址',
   cfg_row_types: '提交类型',
+  cfg_row_pattern: '消息正则',
   cfg_row_scope: '允许 type(scope)',
+  cfg_row_scopes: 'scope 白名单',
+  cfg_row_emoji: 'emoji 前缀',
   cfg_row_body: '要求正文',
   cfg_row_subject_max: '摘要长度上限',
   cfg_row_ticket: '单号规则（Refs footer）',

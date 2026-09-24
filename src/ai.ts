@@ -12,7 +12,9 @@ export interface ChatMessage {
   content: string;
 }
 
-const REQUEST_TIMEOUT_MS = 120_000;
+// Whole-request budget including the body read: reasoning models streaming 8k tokens
+// routinely need minutes, and a too-low cap kills a healthy response mid-stream.
+const REQUEST_TIMEOUT_MS = 600_000;
 
 async function postChat(url: string, token: string, payload: Record<string, unknown>): Promise<Response> {
   return fetch(url, {
@@ -60,17 +62,22 @@ export async function callAI(messages: ChatMessage[], config: AiConfig): Promise
   };
 
   let response: Response;
+  let raw: string;
   try {
     response = await postChat(apiUrl, config.token, { ...payload, response_format: { type: 'json_object' } });
     if (response.status === 400) {
       // Not every OpenAI-compatible provider supports response_format; retry without it.
       response = await postChat(apiUrl, config.token, payload);
     }
+    // The abort signal covers the body read too: a slow completion dies here, not in fetch().
+    raw = await response.text();
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      throw new GaiError(t('err_ai_timeout', { seconds: REQUEST_TIMEOUT_MS / 1000 }));
+    }
     throw new GaiError(t('err_ai_request', { error: (error as Error).message }));
   }
 
-  const raw = await response.text();
   if (!response.ok) {
     throw new GaiError(t('err_ai_status', { status: response.status, body: raw }));
   }

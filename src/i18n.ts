@@ -75,6 +75,8 @@ Quick start:
   proceed: 'Proceed? [y/N] ',
   proceed_yes: 'Proceed? [y/N] y',
   aborted: 'Aborted.',
+  confirm_no_tty:
+    'No terminal to confirm on, so nothing was committed. Re-run with -y (or GAI_YES=1) to skip the prompt.',
   done: 'Done.',
   no_changes: 'No changes under current directory: {scope}',
   files_changed: 'Changed file set has changed since the plan was generated. Run gai again.',
@@ -136,6 +138,8 @@ Quick start:
   val_attempt_failed: 'Validation failed:\n{error}',
 
   upd_source_build: 'Running from source ({path}); self-update only works with a compiled gai binary.',
+  upd_npm_install:
+    'Installed from npm ({path}); update with "npm i -g @surfwei/gai@latest" instead of gai update.',
   upd_no_repo: 'Update source is not configured for this build.\nSet GAI_UPDATE_REPO=<owner>/<repo>, or build from a checkout whose git remote origin is the GitHub repo.',
   upd_current: 'Current: gai {version} ({asset})',
   upd_checking: 'Checking {repo} for updates...',
@@ -249,6 +253,7 @@ const ZH: Record<string, string> = {
   proceed: '继续？[y/N] ',
   proceed_yes: '继续？[y/N] y',
   aborted: '已取消。',
+  confirm_no_tty: '没有可用于确认的终端，未创建任何提交。请加 -y（或设置 GAI_YES=1）跳过确认。',
   done: '完成。',
   no_changes: '当前目录下没有改动：{scope}',
   files_changed: '生成计划后改动文件集已变化，请重新运行 gai。',
@@ -308,6 +313,7 @@ const ZH: Record<string, string> = {
   val_attempt_failed: '校验失败：\n{error}',
 
   upd_source_build: '当前以源码方式运行（{path}）；自更新只适用于编译后的 gai 二进制。',
+  upd_npm_install: '当前为 npm 安装（{path}）；请用 "npm i -g @surfwei/gai@latest" 更新，而不是 gai update。',
   upd_no_repo: '此构建未配置更新源。\n请设置 GAI_UPDATE_REPO=<owner>/<repo>，或在 git remote origin 指向 GitHub 仓库的检出中构建。',
   upd_current: '当前：gai {version}（{asset}）',
   upd_checking: '正在检查 {repo} 的新版本…',

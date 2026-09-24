@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import fs from 'node:fs';
 import path from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { openConfigTui } from './config-tui';
 import { CliFlags, loadSettings, resolveAiConfig } from './config';
 import {
@@ -122,26 +123,76 @@ function printPlan(commits: CommitSpec[]): void {
   console.log();
 }
 
-function confirm(yes: boolean): boolean {
+// Console devices that ignore stdio redirection: the Windows console, /dev/tty elsewhere.
+// Both need 'r+' when opened: 'w' asks for CREATE_ALWAYS, which console devices reject.
+const CONSOLE_DEVICE =
+  process.platform === 'win32'
+    ? { input: '\\\\.\\CONIN$', output: '\\\\.\\CONOUT$' }
+    : { input: '/dev/tty', output: '/dev/tty' };
+
+/** Shows the question on the console, falling back to stdout where no console device is reachable. */
+function writeQuestion(question: string): void {
+  try {
+    const fd = fs.openSync(CONSOLE_DEVICE.output, 'r+');
+    try {
+      fs.writeSync(fd, question);
+      return;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    process.stdout.write(question);
+  }
+}
+
+/**
+ * One confirmation line, read from the terminal rather than from whatever stdin happens to be.
+ * Returns null when no terminal is reachable, which the caller reports instead of silently aborting.
+ */
+async function askLine(question: string): Promise<string | null> {
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      return (await rl.question(question)).trim().toLowerCase();
+    } catch {
+      return ''; // Ctrl+D: an unanswered prompt is a "no", not a missing terminal.
+    } finally {
+      rl.close();
+      process.stdin.pause();
+    }
+  }
+
+  // stdio is redirected (piped into a file or a script): ask the console directly.
+  writeQuestion(question);
+  let inputFd: number;
+  try {
+    inputFd = fs.openSync(CONSOLE_DEVICE.input, 'r+');
+  } catch {
+    return null;
+  }
+  try {
+    const buffer = Buffer.alloc(256);
+    const bytes = fs.readSync(inputFd, buffer, 0, buffer.length, null);
+    return buffer.subarray(0, bytes).toString('utf8').trim().toLowerCase();
+  } catch {
+    return null;
+  } finally {
+    fs.closeSync(inputFd);
+  }
+}
+
+async function confirm(yes: boolean): Promise<boolean> {
   if (yes || /^(1|true|yes|y)$/i.test(String(process.env.GAI_YES ?? '').trim())) {
     console.log(t('proceed_yes'));
     return true;
   }
 
-  try {
-    fs.writeFileSync('/dev/tty', t('proceed'));
-    const fd = fs.openSync('/dev/tty', 'r');
-    try {
-      const buffer = Buffer.alloc(256);
-      const bytes = fs.readSync(fd, buffer, 0, buffer.length, null);
-      const answer = buffer.subarray(0, bytes).toString('utf8').trim().toLowerCase();
-      return answer === 'y' || answer === 'yes';
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
+  const answer = await askLine(t('proceed'));
+  if (answer === null) {
+    console.log(t('confirm_no_tty'));
     return false;
   }
+  return answer === 'y' || answer === 'yes';
 }
 
 async function runFlow(flags: CliFlags): Promise<number> {
@@ -195,7 +246,7 @@ async function runFlow(flags: CliFlags): Promise<number> {
     console.log(t('dry_run'));
     return 0;
   }
-  if (!confirm(flags.yes)) {
+  if (!(await confirm(flags.yes))) {
     console.log(t('aborted'));
     return 0;
   }

@@ -1,9 +1,12 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { t } from './i18n';
 import { CommitSpec, GaiError } from './util';
 
 const MAX_TRACKED_DIFF_CHARS = 180_000;
+// A single git call can emit more than Node's 1 MiB spawnSync default; it only buffers what is produced.
+const MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
 const MAX_UNTRACKED_FILE_BYTES = 64_000;
 const MAX_UNTRACKED_PREVIEW_CHARS = 8_000;
 const MAX_TOTAL_UNTRACKED_PREVIEW_CHARS = 48_000;
@@ -18,20 +21,23 @@ export function run(args: string[], options: { cwd?: string; check?: boolean } =
   const cwd = options.cwd ?? process.cwd();
   const check = options.check ?? true;
 
-  let result;
-  try {
-    result = Bun.spawnSync({ cmd: args, cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
-  } catch (error) {
-    throw new GaiError(t('err_cmd_failed', { command: args[0], error: (error as Error).message }));
+  const result = spawnSync(args[0], args.slice(1), {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: MAX_OUTPUT_BYTES,
+    windowsHide: true,
+  });
+  if (result.error) {
+    throw new GaiError(t('err_cmd_failed', { command: args[0], error: result.error.message }));
   }
 
   const outcome: RunResult = {
-    stdout: result.stdout ? Buffer.from(result.stdout).toString('utf8') : '',
-    stderr: result.stderr ? Buffer.from(result.stderr).toString('utf8') : '',
-    status: result.exitCode ?? 1,
+    stdout: result.stdout?.toString('utf8') ?? '',
+    stderr: result.stderr?.toString('utf8') ?? '',
+    status: result.status ?? 1,
   };
 
-  if (check && !result.success) {
+  if (check && outcome.status !== 0) {
     const command = args.join(' ');
     const stderr = outcome.stderr.trim();
     if (stderr) {

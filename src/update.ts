@@ -69,9 +69,13 @@ function parseChecksums(text: string): Map<string, string> {
 }
 
 export async function selfUpdate(): Promise<number> {
-  const fromSource = path.basename(process.execPath).startsWith('bun');
-  if (fromSource) {
-    console.log(t('upd_source_build', { path: process.execPath }));
+  // Self-update replaces process.execPath, which is only gai itself in a compiled standalone binary.
+  // Under node/bun (source checkout or npm install) execPath is the interpreter, so the rename below
+  // would overwrite the user's runtime instead.
+  const interpreter = /^(bun|node|nodejs)(\.exe)?$/.test(path.basename(process.execPath).toLowerCase());
+  const npmInstall = import.meta.url.includes('/node_modules/');
+  if (interpreter || npmInstall) {
+    console.log(t(npmInstall ? 'upd_npm_install' : 'upd_source_build', { path: process.execPath }));
     return 1;
   }
 

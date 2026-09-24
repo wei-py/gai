@@ -1,6 +1,6 @@
 {
   "name": "gai",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "AI-planned git add + commit for any OpenAI-compatible API",
   "type": "module",
   "license": "MIT",

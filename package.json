@@ -1,17 +1,48 @@
 {
-  "name": "gai",
+  "name": "@surfwei/gai",
   "version": "1.1.1",
   "description": "AI-planned git add + commit for any OpenAI-compatible API",
   "type": "module",
   "license": "MIT",
+  "author": "wei-py <rabbwei@outlook.com>",
+  "homepage": "https://github.com/wei-py/gai#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wei-py/gai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wei-py/gai/issues"
+  },
+  "keywords": [
+    "git",
+    "commit",
+    "commit-message",
+    "conventional-commits",
+    "ai",
+    "llm",
+    "openai",
+    "cli"
+  ],
   "bin": {
-    "gai": "./src/cli.ts"
+    "gai": "dist/cli.js"
+  },
+  "files": [
+    "dist/cli.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "scripts": {
     "dev": "bun src/cli.ts",
     "build": "bun scripts/build.ts",
+    "build:npm": "bun scripts/build.ts --npm",
     "release": "bun scripts/build.ts --all",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "prepublishOnly": "bun run check && bun run build:npm"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

@@ -27,8 +27,66 @@ function deriveRepoFromRemote(): string {
   return match ? match[1] : '';
 }
 
+interface BuildInfo {
+  version: string;
+  commit: string;
+  date: string;
+  releaseRepo: string;
+}
+
+function buildInfo(): BuildInfo {
+  return {
+    version: process.env.GAI_BUILD_VERSION || pkg.version,
+    commit: capture(['git', 'rev-parse', '--short', 'HEAD']) || 'unknown',
+    date: new Date().toISOString().slice(0, 10),
+    releaseRepo: process.env.GAI_UPDATE_REPO || deriveRepoFromRemote(),
+  };
+}
+
+/** Baked via --define: version.ts reads these at runtime instead of package.json or the environment. */
+function defineArgs(info: BuildInfo): string[] {
+  const args: string[] = [];
+  for (const [key, value] of [
+    ['process.env.GAI_VERSION', info.version],
+    ['process.env.GAI_COMMIT', info.commit],
+    ['process.env.GAI_BUILD_DATE', info.date],
+    ['process.env.GAI_RELEASE_REPO', info.releaseRepo],
+  ] as const) {
+    args.push('--define', `${key}=${JSON.stringify(value)}`);
+  }
+  return args;
+}
+
+/** dist/cli.js: the single Node-compatible bundle that package.json's bin points at. */
+function buildNpmBundle(info: BuildInfo): void {
+  const out = path.join(OUT_DIR, 'cli.js');
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  const cmd = ['bun', 'build', 'src/cli.ts', '--target=node', '--format=esm', '--outfile', out, ...defineArgs(info)];
+
+  console.log(`> ${path.relative(ROOT, out)} (node)`);
+  const result = Bun.spawnSync({ cmd, cwd: ROOT, stdout: 'inherit', stderr: 'inherit' });
+  if (result.exitCode !== 0) {
+    process.exit(result.exitCode ?? 1);
+  }
+
+  // bun keeps the entry shebang (bun); the published bundle runs on node instead.
+  const code = fs.readFileSync(out, 'utf8').replace(/^#![^\n]*\n/, '');
+  fs.writeFileSync(out, `#!/usr/bin/env node\n${code}`);
+  fs.chmodSync(out, 0o755);
+
+  console.log(`  cli.js ${(fs.statSync(out).size / 1024).toFixed(1)} KB`);
+  console.log(`  gai ${info.version} (npm bundle, commit ${info.commit})`);
+}
+
 const all = process.argv.includes('--all');
 const explicit = process.argv.find((arg) => arg.startsWith('--target='))?.slice('--target='.length);
+
+// dist/cli.js is the npm entry point; it needs no compiled target, only a Node-compatible bundle.
+if (process.argv.includes('--npm')) {
+  buildNpmBundle(buildInfo());
+  process.exit(0);
+}
+
 const targets = explicit
   ? TARGETS.filter((t) => `${t.platform}-${t.arch}` === explicit)
   : all
@@ -42,12 +100,7 @@ if (targets.length === 0) {
   process.exit(1);
 }
 
-const info = {
-  version: process.env.GAI_BUILD_VERSION || pkg.version,
-  commit: capture(['git', 'rev-parse', '--short', 'HEAD']) || 'unknown',
-  date: new Date().toISOString().slice(0, 10),
-  releaseRepo: process.env.GAI_UPDATE_REPO || deriveRepoFromRemote(),
-};
+const info = buildInfo();
 
 fs.rmSync(OUT_DIR, { recursive: true, force: true });
 fs.mkdirSync(OUT_DIR, { recursive: true });
@@ -55,16 +108,7 @@ const built: string[] = [];
 for (const target of targets) {
   const out = path.join(OUT_DIR, assetName(target.platform, target.arch));
   const bunTarget = `bun-${target.platform === 'win32' ? 'windows' : target.platform}-${target.arch}`;
-  const cmd = ['bun', 'build', 'src/cli.ts', '--compile', `--target=${bunTarget}`, '--outfile', out];
-  for (const [key, value] of [
-    ['process.env.GAI_VERSION', info.version],
-    ['process.env.GAI_COMMIT', info.commit],
-    ['process.env.GAI_BUILD_DATE', info.date],
-    ['process.env.GAI_RELEASE_REPO', info.releaseRepo],
-  ] as const) {
-    cmd.push('--define', `${key}=${JSON.stringify(value)}`);
-  }
-
+  const cmd = ['bun', 'build', 'src/cli.ts', '--compile', `--target=${bunTarget}`, '--outfile', out, ...defineArgs(info)];
   console.log(`> ${path.relative(ROOT, out)} (${bunTarget})`);
   const result = Bun.spawnSync({ cmd, cwd: ROOT, stdout: 'inherit', stderr: 'inherit' });
   if (result.exitCode !== 0) {

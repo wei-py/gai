@@ -32,8 +32,10 @@ function rulesBlock(convention: Convention, commitLang: Lang): string {
       scope
         ? scopes.length > 0
           ? `- scope 可选，只能是：${scopes.join(', ')}；无法确定就省略 scope`
-          : '- scope 可选：能明确模块时使用，例如 feat(ui): ...；无法确定就省略 scope，写成 feat: ...'
-        : '- 不要使用 scope，格式固定为 type: 摘要',
+          : pattern === DEFAULT_PATTERN
+            ? '- scope 可选：能明确模块时使用，例如 feat(ui): ...；无法确定就省略 scope，写成 feat: ...'
+            : '- scope 可选：能明确模块时填写 scope 捕获组，否则省略；分隔符必须遵守上述正则'
+        : '- 不要使用 scope；格式遵守上述正则，省略 scope 捕获组',
     );
     lines.push(`- 摘要：简短祈使句，首行（含 type 与 scope）不超过 ${subjectMax} 个字符，结尾不加句号`);
     lines.push('- 摘要不要以 emoji 开头');
@@ -54,8 +56,10 @@ function rulesBlock(convention: Convention, commitLang: Lang): string {
       scope
         ? scopes.length > 0
           ? `- scope is optional and must be one of: ${scopes.join(', ')}; omit it when unsure`
-          : '- scope is optional: use it when the module is clear, e.g. feat(ui): ...; otherwise omit it, e.g. feat: ...'
-        : '- never use a scope; the format is type: subject',
+          : pattern === DEFAULT_PATTERN
+            ? '- scope is optional: use it when the module is clear, e.g. feat(ui): ...; otherwise omit it, e.g. feat: ...'
+            : '- scope is optional: populate its capture group when the module is clear, otherwise omit it; follow the regex separators'
+        : '- never use a scope; omit its capture group while following the format regex',
     );
     lines.push(
       `- subject: short imperative sentence, first line (with type and scope) at most ${subjectMax} characters, no trailing period`,
@@ -74,9 +78,9 @@ function schemaLine(convention: Convention): string {
     convention.pattern !== DEFAULT_PATTERN
       ? convention.pattern
       : convention.body
-        ? 'type(scope): subject\\n\\nbody'
+        ? 'type(scope): subject\n\nbody'
         : 'type(scope): subject';
-  return `{"commits":[{"message":"${shape}","files":["path/from/repo/root"]}]}`;
+  return JSON.stringify({ commits: [{ message: shape, files: ['path/from/repo/root'] }] });
 }
 
 export function buildPrompt({

@@ -57,6 +57,7 @@ GAI_TOKEN=sk-... GAI_MODEL=deepseek-chat gai -y
 | --- | --- |
 | `gai [options] [dir]` | plan the uncommitted changes under `dir` (default `.`) and commit them in groups |
 | `gai config` | open the settings screen; a selection is saved and applied immediately |
+| `gai web` | open the local browser-based settings page |
 | `gai update` | self-update to the latest release (compiled binaries only) |
 | `gai -v`, `--version` | print version |
 | `gai -h`, `--help` | show help |
@@ -105,6 +106,42 @@ GAI_BASE_URL=https://api.deepseek.com/v1
 GAI_COMMIT_LANG=zh
 GAI_COMMIT_TICKET=PROJ-[0-9]+
 ```
+
+### Web settings
+
+Run `gai web` to start a loopback-only configuration server and open the browser.
+If the browser does not open, use the URL printed in the terminal. Keep the command
+running while editing; press Ctrl+C to stop it.
+
+The page edits the same settings as `gai config`, including API credentials,
+languages and commit conventions. Click Save to persist changes. Environment-overridden
+fields are read-only and their existing file values are preserved.
+Use `gai web --config /path/to/config.env` for a different configuration file.
+This page only configures gai; it does not stage or commit files.
+
+The layout uses two columns on desktop and a single column on narrow screens.
+After rebuilding or updating gai, restart `gai web` and reload the page to use the new UI.
+
+Commit types are checkbox selections with descriptions; at least one must be selected.
+Add lowercase custom types when needed; existing custom types remain available.
+The format selector offers standard Conventional Commits, compact colon, bracketed
+type, slash scope and dash separators, plus custom regex editing. Selecting a
+template fills its regex and shows scoped, unscoped and breaking-change examples.
+Only the standard template follows Conventional Commits; other styles may not
+work with release/changelog tooling that expects that format.
+All configuration controls and field hints remain visible. Numbered section headings,
+aligned fields and compact type rows provide structure without collapsed settings.
+The format editor and three labeled examples are placed side by side on wide screens,
+then stacked on narrow screens.
+
+The page has independent Chinese/English and system/light/dark appearance selectors.
+These browser preferences do not change the terminal or commit language settings.
+Preferences survive reloads at the same server address. Since each `gai web` run
+uses a random port, browser preferences are not shared across different ports.
+The right-hand section directory tracks the current section; on narrow screens it
+moves above the form.
+Dropdowns follow the page theme, including their option menus in browsers that
+support customizable native selects. Older browsers keep the system option menu.
 
 ## Commit messages
 
@@ -191,12 +228,49 @@ gai
 界面语言与提交信息语言独立设置：例如 `GAI_LANG=zh`、`GAI_COMMIT_LANG=en`
 表示中文界面、英文提交信息。
 
+### 网页配置
+
+```sh
+gai web                             # 启动本机配置服务，并自动打开浏览器
+gai web --config /path/to/config.env # 编辑指定配置文件，不存在时可在保存时创建
+```
+
+网页可编辑 API Token、模型、服务地址、语言和全部提交规范，点击“保存配置”后写入
+与 `gai config` 相同的配置文件。被环境变量覆盖的字段为只读，保存时不会覆盖这些字段
+在配置文件中的原值。Token 默认隐藏，可按需显示。
+
+服务只监听 `127.0.0.1` 的随机可用端口；如果浏览器没有自动打开，请访问终端打印的地址。
+编辑期间保持命令运行，完成后按 Ctrl+C 停止服务。网页仅用于配置，不会执行 Git 暂存或提交。
+
+页面在桌面使用双列布局，窄屏自动切换为单列。重新构建或更新 gai 后，
+请先停止旧的 `gai web`，再启动并重新加载页面；已运行的服务不会自动切换到新版本。
+
+**提交类型多选**：勾选允许的类型，每项附中文或英文说明，至少保留一项。
+可以添加仅含小写英文字母的自定义类型；配置中已有的自定义类型也会回显。
+
+**提交格式模板**：可选择标准 Conventional Commits、紧凑冒号、方括号类型、
+斜杠范围、短横线分隔五种模板。选择后自动填写正则，并展示带范围、无范围和
+破坏性变更示例；仍可选择“自定义正则”编辑。只有标准模板遵循 Conventional Commits，
+其他格式可能不兼容依赖该规范的版本发布或 changelog 工具。
+
+所有配置项与填写说明直接可见，不使用折叠或聚焦后显示。
+桌面采用左侧编号分区、右侧对齐表单，提交类型以紧凑双列清单呈现。
+格式编辑与带范围、无范围、破坏性变更示例并排展示，窄屏自动纵向排列。
+
+**界面偏好**：顶部支持中文 / English 和跟随系统 / 浅色 / 深色切换，浏览器记住选择。
+这些选项只影响网页，不会修改终端语言或提交信息语言，也不会清空尚未保存的配置。
+偏好在同一服务地址下刷新后保留；每次启动使用随机端口，不同端口之间不共享浏览器偏好。
+右侧页内目录可点击跳转，并提示当前分组；窄屏时目录移到表单上方。
+下拉框与选项菜单跟随页面主题，保留原生键盘操作；不支持原生下拉菜单自定义的旧版浏览器
+会保留系统选项菜单。
+
 ### 命令与参数
 
 | 命令 | 说明 |
 | --- | --- |
 | `gai [options] [dir]` | 为指定目录中的未提交改动生成计划并分组提交，目录默认为 `.` |
 | `gai config` | 打开交互式设置界面，选项修改后立即保存并生效 |
+| `gai web` | 启动本机网页配置界面，点击保存后写入配置文件 |
 | `gai update` | 将独立二进制更新到最新版本，不适用于 npm 安装 |
 | `gai -v`、`gai --version` | 查看版本 |
 | `gai -h`、`gai --help` | 查看帮助 |

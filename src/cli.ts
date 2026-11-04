@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { openConfigTui } from './config-tui';
 import { CliFlags, loadSettings, resolveAiConfig } from './config';
+import { openWebConfig } from './web';
 import {
   collectCandidates,
   collectTrackedDiff,
@@ -20,7 +21,7 @@ import { selfUpdate } from './update';
 import { CommitSpec, fail, GaiError } from './util';
 import { versionLine } from './version';
 
-type Command = 'run' | 'update' | 'config' | 'help' | 'version';
+type Command = 'run' | 'update' | 'config' | 'web' | 'help' | 'version';
 
 function parseCli(argv: string[]): { command: Command; flags: CliFlags } {
   const flags: CliFlags = { yes: false, dryRun: false };
@@ -51,6 +52,12 @@ function parseCli(argv: string[]): { command: Command; flags: CliFlags } {
           fail(t('err_unexpected_arg', { arg }));
         }
         command = 'update';
+        break;
+      case 'web':
+        if (index !== 0) {
+          fail(t('err_unexpected_arg', { arg }));
+        }
+        command = 'web';
         break;
       case 'config':
         if (index !== 0) {
@@ -106,8 +113,8 @@ function parseCli(argv: string[]): { command: Command; flags: CliFlags } {
   ) {
     fail(t('err_no_options', { command: 'gai update' }));
   }
-  if (command === 'config' && (flags.token || flags.model || flags.baseUrl || flags.dir || flags.yes || flags.dryRun)) {
-    fail(t('err_config_options'));
+  if ((command === 'config' || command === 'web') && (flags.token || flags.model || flags.baseUrl || flags.dir || flags.yes || flags.dryRun)) {
+    fail(t('err_config_options', { command: `gai ${command}` }));
   }
   return { command, flags };
 }
@@ -274,6 +281,10 @@ async function main(): Promise<number> {
     }
     if (command === 'version') {
       console.log(versionLine());
+      return 0;
+    }
+    if (command === 'web') {
+      await openWebConfig(flags.configPath);
       return 0;
     }
     if (command === 'config') {

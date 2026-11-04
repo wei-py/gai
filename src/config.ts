@@ -291,16 +291,17 @@ function canonicalValues(settings: Settings): Record<string, string> {
   return values;
 }
 
-/** Rewrites only gai-owned keys in place; comments, legacy keys, and unknown keys survive. */
-export function saveSettings(settings: Settings, configPath: string): void {
+/** Rewrites gai-owned keys; preserves comments, unknown keys and explicitly excluded environment overrides. */
+export function saveSettings(settings: Settings, configPath: string, excludedKeys: readonly string[] = []): void {
   const values = canonicalValues(settings);
+  const excluded = new Set(excludedKeys);
   const seen = new Set<string>();
   const out: string[] = [];
 
   const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8').split(/\r?\n/) : [];
   for (const line of existing) {
     const key = parseLineKey(line);
-    if (key && MANAGED[key]) {
+    if (key && MANAGED[key] && !excluded.has(key)) {
       if (key in values && !seen.has(key)) {
         out.push(`${key}=${values[key]}`);
         seen.add(key);
@@ -310,7 +311,7 @@ export function saveSettings(settings: Settings, configPath: string): void {
     out.push(line);
   }
   for (const key of Object.keys(MANAGED)) {
-    if (key in values && !seen.has(key)) {
+    if (key in values && !seen.has(key) && !excluded.has(key)) {
       out.push(`${key}=${values[key]}`);
       seen.add(key);
     }

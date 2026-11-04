@@ -23,6 +23,7 @@ const EN: Record<string, string> = {
 Usage:
   gai [options] [dir]        plan the uncommitted changes under dir (default: .) and commit them in groups
   gai config                 open the settings screen; a selection is saved and applied immediately
+  gai web                    open the local web settings page
   gai update                 self-update to the latest release
   gai -v, --version          print version
   gai -h, --help             show this help
@@ -91,7 +92,7 @@ Quick start:
   err_unexpected_arg: 'Unexpected argument: {arg}\nRun gai -h for usage.',
   err_one_dir: 'Only one directory argument is allowed: {arg}\nRun gai -h for usage.',
   err_no_options: '{command} takes no options.',
-  err_config_options: 'gai config only accepts --config <path>.',
+  err_config_options: '{command} only accepts --config <path>.',
   err_ticket_required:
     'GAI_COMMIT_TICKET_REQUIRED is set but the branch name carries no ticket matching GAI_COMMIT_TICKET.',
   upd_check_error: 'Release check failed: {error}',
@@ -202,6 +203,7 @@ const ZH: Record<string, string> = {
 用法：
   gai [选项] [目录]          规划当前目录（默认 .）下的未提交改动，并分组提交
   gai config                 打开设置界面；选中即保存并立即生效
+  gai web                    打开本机网页配置界面
   gai update                 自更新到最新版本
   gai -v, --version          输出版本
   gai -h, --help             显示帮助
@@ -268,7 +270,7 @@ const ZH: Record<string, string> = {
   err_unexpected_arg: '意外的参数：{arg}\n运行 gai -h 查看用法。',
   err_one_dir: '只能指定一个目录参数：{arg}\n运行 gai -h 查看用法。',
   err_no_options: '{command} 不接受额外选项。',
-  err_config_options: 'gai config 只接受 --config <path>。',
+  err_config_options: '{command} 只接受 --config <path>。',
   err_ticket_required: '已设置 GAI_COMMIT_TICKET_REQUIRED，但分支名中没有匹配 GAI_COMMIT_TICKET 的单号。',
   upd_check_error: '检查版本失败：{error}',
 
